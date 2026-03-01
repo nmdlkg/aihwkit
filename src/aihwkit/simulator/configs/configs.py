@@ -113,6 +113,24 @@ class SingleRPUConfig(IOManagedRPUConfig):
     device: PulsedDevice = field(default_factory=ConstantStepDevice)
     """Parameter that modify the behavior of the pulsed device."""
 
+    use_triton: bool = field(default=False)
+    """Whether to use Triton backend for tile implementation."""
+
+    def get_default_tile_module_class(self, out_size: int = 0, in_size: int = 0) -> Type:
+        """Returns the default TileModule class.
+        
+        If use_triton is True or AIHWKIT_USE_TRITON env var is set,
+        attempts to use Triton backend if available.
+        """
+        from aihwkit.simulator.triton.backend import TritonBackend
+        
+        if (self.use_triton or TritonBackend.is_preferred()) and TritonBackend.is_available():
+            tile_cls = TritonBackend.get_tile_class(self)
+            if tile_cls is not None:
+                return tile_cls
+        
+        return super().get_default_tile_module_class(out_size, in_size)
+
 
 @dataclass
 class UnitCellRPUConfig(IOManagedRPUConfig):
@@ -167,6 +185,9 @@ class InferenceRPUConfig(IOManagedRPUConfig):
 
     tile_array_class: Type = TileModuleArray
     """Tile class used for mapped logical tile arrays."""
+
+    use_triton: bool = field(default=False)
+    """Whether to use Triton backend for tile implementation."""
 
     forward: IOParameters = field(
         default_factory=IOParameters, metadata=dict(bindings_include=True)
@@ -257,6 +278,21 @@ class InferenceRPUConfig(IOManagedRPUConfig):
         if tile_class_name in ["TorchInferenceTile"]:
             return True
         return tile_class_name == self.tile_class.__name__
+
+    def get_default_tile_module_class(self, out_size: int = 0, in_size: int = 0) -> Type:
+        """Returns the default TileModule class.
+        
+        If use_triton is True or AIHWKIT_USE_TRITON env var is set,
+        attempts to use Triton backend if available.
+        """
+        from aihwkit.simulator.triton.backend import TritonBackend
+        
+        if (self.use_triton or TritonBackend.is_preferred()) and TritonBackend.is_available():
+            tile_cls = TritonBackend.get_tile_class(self)
+            if tile_cls is not None:
+                return tile_cls
+        
+        return super().get_default_tile_module_class(out_size, in_size)
 
 
 @dataclass
