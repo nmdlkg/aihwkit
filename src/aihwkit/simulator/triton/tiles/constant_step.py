@@ -22,9 +22,9 @@ class ConstantStepTritonTile(TritonAnalogTile):
     Two update paths are available, controlled by ``use_triton_update`` in the config:
 
     **PyTorch path** (default, ``use_triton_update=False``):
-        Per-batch-element Bernoulli sampling with matmul accumulation.
-        Exact per-sample coincidence semantics.  Slower for large matrices
-        due to multiple PyTorch op dispatches.
+        Per-sample Binomial coincidence counting over ``BL`` pulses.
+        Matches CUDA pulse-train coincidence semantics and applies
+        ``dw_min_std`` cycle noise with ``sqrt(n)`` scaling.
 
     **Triton kernel path** (``use_triton_update=True``):
         Batch-reduced Triton pipeline (triton_get_counts + triton_pulsed_update).
@@ -77,7 +77,7 @@ class ConstantStepTritonTile(TritonAnalogTile):
                in-place and clamps to [w_min, w_max].
 
         PyTorch path (default, ``use_triton_update=False``):
-            Per-batch-element Bernoulli sampling with matmul accumulation.
+            Per-sample Binomial coincidence counting over ``BL`` pulses.
 
         Args:
             x_input: Input activations ``[batch, in_size]`` (or transposed).
@@ -178,24 +178,68 @@ class ConstantStepTritonTile(TritonAnalogTile):
                 )
 
             else:
-                # ------------------------------------------------------------------
-                # CPU / default path: PyTorch Bernoulli sampling per batch element
-                # ------------------------------------------------------------------
-
-                # Stochastic pulse generation per batch element (vectorized)
                 x_prob = (scale_x * x_all.abs()).clamp(0.0, 1.0)  # [B, in_size]
                 d_prob = (scale_d * d_all.abs()).clamp(0.0, 1.0)  # [B, out_size]
+                x_sign = x_all.sign()  # [B, in_size]
+                d_sign = -d_all.sign()  # [B, out_size]
 
-                # Signed pulses: +/-1 (direction) or 0 (no pulse)
-                x_pulses = torch.bernoulli(x_prob) * x_all.sign()  # [B, in_size]
-                d_pulses = torch.bernoulli(d_prob) * (-d_all.sign())  # [B, out_size]
+                out_size = d_prob.shape[1]
+                in_size = x_prob.shape[1]
 
-                # Accumulate coincident updates over batch:
-                # coincidence_sum[i,j] = sum_b d_pulse[b,i] * x_pulse[b,j]
-                coincidence_sum = d_pulses.T @ x_pulses  # [out_size, in_size]
+                pos_counts = torch.zeros(
+                    (out_size, in_size),
+                    device=self.weight.data.device,
+                    dtype=self.weight.data.dtype,
+                )
+                neg_counts = torch.zeros_like(pos_counts)
 
-                # ConstantStep: dw_min change per coincident pulse (proportional to count)
-                self.weight.data += dw_min * coincidence_sum
+                max_elements = 8_000_000
+                denom = max(1, out_size * in_size)
+                chunk_size = max(1, max_elements // denom)
+
+                for start in range(0, x_prob.shape[0], chunk_size):
+                    end = min(start + chunk_size, x_prob.shape[0])
+
+                    x_prob_chunk = x_prob[start:end]
+                    d_prob_chunk = d_prob[start:end]
+                    x_sign_chunk = x_sign[start:end]
+                    d_sign_chunk = d_sign[start:end]
+
+                    coincidence_prob = d_prob_chunk.unsqueeze(
+                        2
+                    ) * x_prob_chunk.unsqueeze(1)
+                    n_trials = torch.full_like(coincidence_prob, float(BL))
+                    coincidence_counts = torch.binomial(n_trials, coincidence_prob)
+
+                    coincidence_sign = d_sign_chunk.unsqueeze(
+                        2
+                    ) * x_sign_chunk.unsqueeze(1)
+                    pos_counts += (coincidence_counts * (coincidence_sign > 0)).sum(
+                        dim=0
+                    )
+                    neg_counts += (coincidence_counts * (coincidence_sign < 0)).sum(
+                        dim=0
+                    )
+
+                coincidence_sum = pos_counts - neg_counts
+
+                dw_min_std = self._tile_device.dw_min_std
+                if dw_min_std > 0.0:
+                    pos_noise = torch.randn_like(pos_counts)
+                    neg_noise = torch.randn_like(neg_counts)
+                    delta_w = dw_min * coincidence_sum
+                    delta_w += (
+                        dw_min
+                        * dw_min_std
+                        * (
+                            pos_counts.sqrt() * pos_noise
+                            - neg_counts.sqrt() * neg_noise
+                        )
+                    )
+                else:
+                    delta_w = dw_min * coincidence_sum
+
+                self.weight.data += delta_w
                 self.weight.data.clamp_(
                     self._tile_device.w_min, self._tile_device.w_max
                 )

@@ -42,7 +42,9 @@ def _make_analog_tile():
     from aihwkit.simulator.configs.devices import IdealDevice
 
     rpu_config = SingleRPUConfig(device=IdealDevice())
-    tile = TritonAnalogTile(D_SIZE, X_SIZE, rpu_config=rpu_config)  # out_size=D_SIZE, in_size=X_SIZE
+    tile = TritonAnalogTile(
+        D_SIZE, X_SIZE, rpu_config=rpu_config
+    )  # out_size=D_SIZE, in_size=X_SIZE
     tile.weight.data = tile.weight.data.cuda()
     tile.set_weights_uniform_random(-0.1, 0.1)
     return tile
@@ -54,7 +56,9 @@ def _make_constant_step_tile():
     from aihwkit.simulator.configs.devices import ConstantStepDevice
 
     rpu_config = SingleRPUConfig(device=ConstantStepDevice())
-    tile = ConstantStepTritonTile(D_SIZE, X_SIZE, rpu_config=rpu_config)  # out_size=D_SIZE, in_size=X_SIZE
+    tile = ConstantStepTritonTile(
+        D_SIZE, X_SIZE, rpu_config=rpu_config
+    )  # out_size=D_SIZE, in_size=X_SIZE
     tile.weight.data = tile.weight.data.cuda()
     tile.set_weights_uniform_random(-0.1, 0.1)
     return tile
@@ -66,7 +70,9 @@ def _make_exp_step_tile():
     from aihwkit.simulator.configs.devices import ExpStepDevice
 
     rpu_config = SingleRPUConfig(device=ExpStepDevice())
-    tile = ExpStepTritonTile(D_SIZE, X_SIZE, rpu_config=rpu_config)  # out_size=D_SIZE, in_size=X_SIZE
+    tile = ExpStepTritonTile(
+        D_SIZE, X_SIZE, rpu_config=rpu_config
+    )  # out_size=D_SIZE, in_size=X_SIZE
     tile.weight.data = tile.weight.data.cuda()
     tile.set_weights_uniform_random(-0.1, 0.1)
     return tile
@@ -211,6 +217,26 @@ class TestConstantStepTritonTile:
         w_after, _ = self.tile.get_weights()
         assert w_after.max() <= self.tile._tile_device.w_max + 1e-6
         assert w_after.min() >= self.tile._tile_device.w_min - 1e-6
+
+    def test_update_uses_bl_pulse_counts(self):
+        self.tile._tile_device.dw_min_std = 0.0
+        self.tile.set_learning_rate(0.01)
+        self.tile.set_weights(torch.zeros(D_SIZE, X_SIZE))
+
+        x = torch.ones(BATCH, X_SIZE, device="cuda")
+        d = torch.ones(BATCH, D_SIZE, device="cuda")
+        self.tile.update(x, d)
+
+        w_after, _ = self.tile.get_weights()
+        lr = abs(self.tile.get_learning_rate())
+        dw_min = self.tile._tile_device.dw_min
+        k_val = lr / dw_min
+        bl = min(
+            max(1, int(torch.ceil(torch.tensor(k_val)).item())), self.tile.bl_count
+        )
+        expected = -dw_min * BATCH * bl
+
+        assert torch.allclose(w_after, torch.full_like(w_after, expected), atol=1e-6)
 
     def test_get_set_weights(self):
         W = torch.randn(D_SIZE, X_SIZE) * 0.1
