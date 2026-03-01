@@ -1,0 +1,110 @@
+=== F4: SCOPE FIDELITY CHECK REPORT ===
+Date: 2026-03-01
+Worktree: /home/sinnce/workspace/aihwkit-triton-port
+Branch: triton-port-completion
+Commits beyond origin/master: 7
+
+=== CHANGED FILES ===
+benchmarks/triton_vs_cublas.py
+examples/01_simple_layer.py
+examples/03_mnist_training.py
+examples/04_lenet5_training.py
+examples/04_lenet5_triton.py
+src/aihwkit/simulator/configs/configs.py
+src/aihwkit/simulator/triton/__init__.py
+src/aihwkit/simulator/triton/backend.py
+src/aihwkit/simulator/triton/base_tile.py
+src/aihwkit/simulator/triton/devices/__init__.py
+src/aihwkit/simulator/triton/devices/constant_step.py
+src/aihwkit/simulator/triton/devices/exp_step.py
+src/aihwkit/simulator/triton/devices/ideal.py
+src/aihwkit/simulator/triton/io_manager.py
+src/aihwkit/simulator/triton/kernels/__init__.py
+src/aihwkit/simulator/triton/kernels/backward.py
+src/aihwkit/simulator/triton/kernels/bit_line_maker.py
+src/aihwkit/simulator/triton/kernels/forward.py
+src/aihwkit/simulator/triton/kernels/fused_gemm.py
+src/aihwkit/simulator/triton/kernels/math_utils.py
+src/aihwkit/simulator/triton/kernels/maximizer.py
+src/aihwkit/simulator/triton/kernels/pulsed_update.py
+src/aihwkit/simulator/triton/kernels/rng.py
+src/aihwkit/simulator/triton/tiles/__init__.py
+src/aihwkit/simulator/triton/tiles/analog.py
+src/aihwkit/simulator/triton/tiles/constant_step.py
+src/aihwkit/simulator/triton/tiles/exp_step.py
+src/aihwkit/simulator/triton/tiles/floating_point.py
+src/aihwkit/simulator/triton/tiles/inference.py
+src/aihwkit/simulator/triton/types.py
+tests/helpers/tiles.py
+tests/test_simulator_tiles.py
+tests/test_triton_kernels.py
+tests/test_triton_tiles.py
+
+=== PATH COMPLIANCE CHECK ===
+ALLOWED PATHS: src/aihwkit/simulator/triton/, src/aihwkit/simulator/configs/, tests/, examples/, benchmarks/
+FORBIDDEN PATHS: src/rpucuda/, src/aihwkit/simulator/tiles/base_tile.py
+
+Files OUTSIDE allowed paths: NONE
+Result: ALL files within allowed paths ✓
+
+=== CUDA BACKEND CHECK ===
+Command: git diff origin/master -- src/rpucuda/
+Result: EMPTY (no changes) ✓
+CUDA backend UNTOUCHED ✓
+
+=== BASE_TILE.PY CHECK ===
+Command: git diff origin/master -- src/aihwkit/simulator/tiles/base_tile.py
+Result: EMPTY (no changes) ✓
+src/aihwkit/simulator/tiles/base_tile.py UNTOUCHED ✓
+
+NOTE: src/aihwkit/simulator/triton/base_tile.py IS changed — this is a
+DIFFERENT file (in the triton/ subpackage), which is explicitly allowed.
+
+=== use_triton_gemm DEFAULT CHECK ===
+File: src/aihwkit/simulator/configs/configs.py, line 119
+Code: use_triton_gemm: bool = field(default=False)
+Result: PASS — defaults to False (opt-in only) ✓
+
+=== EXP_STEP TRITON KERNEL CHECK ===
+Command: grep -n "@triton.jit|triton_kernel|tl.load|tl.store" src/aihwkit/simulator/triton/devices/exp_step.py
+Result: EMPTY — no Triton JIT kernels found ✓
+exp_step.py uses PyTorch Bernoulli only ✓
+
+=== FUSED GEMM MIXED PRECISION CHECK ===
+Command: grep -n "float16|bfloat16|half|mixed.prec|fp16|bf16" src/aihwkit/simulator/triton/kernels/fused_gemm.py
+Result: EMPTY — no mixed precision types found ✓
+fused_gemm.py is float32 only ✓
+
+=== GENERIC KERNEL FRAMEWORK CHECK ===
+Command: grep -rn "GenericKernel|KernelFramework|BaseKernel|generic_kernel|kernel_framework" src/aihwkit/simulator/triton/
+Result: EMPTY — no generic kernel framework detected ✓
+
+=== TASK-BY-TASK COMPLIANCE SUMMARY ===
+
+Task 3a6dc7f (fix: duplicate Bernoulli bug and graceful fallback)
+  - Touches: triton/ only → COMPLIANT ✓
+
+Task 36e026b (feat: accelerate IOManager with Triton kernels and fused GEMM)
+  - Touches: triton/ only → COMPLIANT ✓
+
+Task 7eab066 (feat: wire pulsed update pipeline and I/O manager)
+  - Touches: triton/ only → COMPLIANT ✓
+
+Task d00d0da (feat: wire fused GEMM into forward/backward paths opt-in)
+  - Touches: triton/, configs/ → COMPLIANT ✓
+  - use_triton_gemm defaults to False → COMPLIANT ✓
+
+Task a6dac9c (test: kernel tests 26 tests and Triton tile variants)
+  - Touches: tests/ only → COMPLIANT ✓
+
+Task cf67417 (fix: import isolation in kernel tests, add .tile property)
+  - Touches: triton/, tests/ → COMPLIANT ✓
+
+Task 234544a (test: add Triton backend to examples 01/03/04 and benchmark)
+  - Touches: examples/, benchmarks/, tests/ → COMPLIANT ✓
+
+=== ISSUES / VIOLATIONS ===
+NONE FOUND
+
+=== FINAL VERDICT ===
+Tasks [7/7 compliant] | CUDA Untouched [YES] | Scope [CLEAN/0 issues] | VERDICT: APPROVE
