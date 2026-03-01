@@ -120,8 +120,10 @@ class ConstantStepTritonTile(TritonAnalogTile):
         scale_x = base_A * (d_amax / x_amax) ** 0.5  # for x pulses (CUDA's B)
         scale_d = base_A * (x_amax / d_amax) ** 0.5  # for d pulses (CUDA's A)
 
+        use_triton_update = bool(getattr(self.rpu_config, "use_triton_update", True))
+
         with torch.no_grad():
-            if x_all.is_cuda and self.weight.data.is_cuda:
+            if x_all.is_cuda and self.weight.data.is_cuda and use_triton_update:
                 # ------------------------------------------------------------------
                 # GPU path: Triton kernel pipeline
                 # ------------------------------------------------------------------
@@ -162,7 +164,6 @@ class ConstantStepTritonTile(TritonAnalogTile):
 
             else:
                 # ------------------------------------------------------------------
-                # CPU path: original PyTorch Bernoulli sampling
                 # ------------------------------------------------------------------
                 x_prob = (scale_x * x_all.abs()).clamp(0.0, 1.0)  # [B, in_size]
                 d_prob = (scale_d * d_all.abs()).clamp(0.0, 1.0)  # [B, out_size]

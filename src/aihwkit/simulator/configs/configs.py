@@ -26,7 +26,11 @@ from aihwkit.simulator.configs.devices import (
     IdealDevice,
     PulsedDevice,
 )
-from aihwkit.simulator.configs.compounds import DigitalRankUpdateCell, UnitCell, TransferCompound
+from aihwkit.simulator.configs.compounds import (
+    DigitalRankUpdateCell,
+    UnitCell,
+    TransferCompound,
+)
 from aihwkit.simulator.parameters import (
     IOParameters,
     IOParametersIRDropT,
@@ -119,22 +123,29 @@ class SingleRPUConfig(IOManagedRPUConfig):
     use_triton_gemm: bool = field(default=False)
     """If True, uses fused Triton GEMM kernel instead of cuBLAS."""
 
-    def get_default_tile_module_class(self, out_size: int = 0, in_size: int = 0) -> Type:
+    use_triton_update: bool = field(default=False)
+    """If True, uses Triton pulsed-update kernels on CUDA tiles."""
+
+    def get_default_tile_module_class(
+        self, out_size: int = 0, in_size: int = 0
+    ) -> Type:
         """Returns the default TileModule class.
-        
+
         If use_triton is True or AIHWKIT_USE_TRITON env var is set,
         attempts to use Triton backend if available.
         """
         try:
             from aihwkit.simulator.triton.backend import TritonBackend
-            
-            if (self.use_triton or TritonBackend.is_preferred()) and TritonBackend.is_available():
+
+            if (
+                self.use_triton or TritonBackend.is_preferred()
+            ) and TritonBackend.is_available():
                 tile_cls = TritonBackend.get_tile_class(self)
                 if tile_cls is not None:
                     return tile_cls
         except ImportError:
             pass  # Triton not available, use default tile
-        
+
         return super().get_default_tile_module_class(out_size, in_size)
 
 
@@ -285,22 +296,26 @@ class InferenceRPUConfig(IOManagedRPUConfig):
             return True
         return tile_class_name == self.tile_class.__name__
 
-    def get_default_tile_module_class(self, out_size: int = 0, in_size: int = 0) -> Type:
+    def get_default_tile_module_class(
+        self, out_size: int = 0, in_size: int = 0
+    ) -> Type:
         """Returns the default TileModule class.
-        
+
         If use_triton is True or AIHWKIT_USE_TRITON env var is set,
         attempts to use Triton backend if available.
         """
         try:
             from aihwkit.simulator.triton.backend import TritonBackend
-            
-            if (self.use_triton or TritonBackend.is_preferred()) and TritonBackend.is_available():
+
+            if (
+                self.use_triton or TritonBackend.is_preferred()
+            ) and TritonBackend.is_available():
                 tile_cls = TritonBackend.get_tile_class(self)
                 if tile_cls is not None:
                     return tile_cls
         except ImportError:
             pass  # Triton not available, use default tile
-        
+
         return super().get_default_tile_module_class(out_size, in_size)
 
 
