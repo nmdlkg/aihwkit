@@ -933,3 +933,106 @@ class TorchInferenceIRDropTCuda:
     def get_tile(self, out_size, in_size, rpu_config=None, **kwargs):
         rpu_config = rpu_config or self.get_rpu_config()
         return rpu_config.tile_class(out_size, in_size, rpu_config, **kwargs).cuda()
+
+
+
+
+# ---------------------------------------------------------------------------
+# Triton tile variants
+# ---------------------------------------------------------------------------
+
+from unittest import SkipTest
+
+try:
+    import triton as _triton_pkg  # noqa: F401
+    _HAS_TRITON = True
+except ImportError:
+    _HAS_TRITON = False
+
+try:
+    from aihwkit.simulator.triton.tiles.analog import TritonAnalogTile as _TritonAnalogTile
+    from aihwkit.simulator.triton.tiles.constant_step import (
+        ConstantStepTritonTile as _ConstantStepTritonTile,
+    )
+    from aihwkit.simulator.triton.tiles.exp_step import (
+        ExpStepTritonTile as _ExpStepTritonTile,
+    )
+    _SKIP_TRITON_TESTS = not _HAS_TRITON
+except ImportError:
+    _TritonAnalogTile = None
+    _ConstantStepTritonTile = None
+    _ExpStepTritonTile = None
+    _SKIP_TRITON_TESTS = True
+
+
+class FloatingPointTriton:
+    """TritonAnalogTile as floating point equivalent."""
+
+    simulator_tile_class = _TritonAnalogTile
+    first_hidden_field = None
+    use_cuda = False
+
+    def get_rpu_config(self):
+        return FloatingPointRPUConfig()
+
+    def get_tile(self, out_size, in_size, rpu_config=None, **kwargs):
+        if _SKIP_TRITON_TESTS:
+            raise SkipTest("Triton not available")
+        rpu_config = rpu_config or self.get_rpu_config()
+        return _TritonAnalogTile(out_size, in_size, rpu_config, **kwargs)
+
+
+class IdealTriton:
+    """TritonAnalogTile with IdealDevice."""
+
+    simulator_tile_class = _TritonAnalogTile
+    first_hidden_field = None
+    use_cuda = False
+
+    def get_rpu_config(self):
+        rpu_config = SingleRPUConfig(device=IdealDevice())
+        rpu_config.forward.is_perfect = True
+        rpu_config.backward.is_perfect = True
+        return rpu_config
+
+    def get_tile(self, out_size, in_size, rpu_config=None, **kwargs):
+        if _SKIP_TRITON_TESTS:
+            raise SkipTest("Triton not available")
+        rpu_config = rpu_config or self.get_rpu_config()
+        return _TritonAnalogTile(out_size, in_size, rpu_config, **kwargs)
+
+
+class ConstantStepTriton:
+    """ConstantStepTritonTile with Triton backend."""
+
+    simulator_tile_class = _ConstantStepTritonTile
+    first_hidden_field = None
+    use_cuda = False
+
+    def get_rpu_config(self):
+        return SingleRPUConfig(
+            device=ConstantStepDevice(w_max_dtod=0, w_min_dtod=0, up_down_dtod=0.0)
+        )
+
+    def get_tile(self, out_size, in_size, rpu_config=None, **kwargs):
+        if _SKIP_TRITON_TESTS:
+            raise SkipTest("Triton not available")
+        rpu_config = rpu_config or self.get_rpu_config()
+        return _ConstantStepTritonTile(out_size, in_size, rpu_config, **kwargs)
+
+
+class ExpStepTriton:
+    """ExpStepTritonTile with Triton backend."""
+
+    simulator_tile_class = _ExpStepTritonTile
+    first_hidden_field = None
+    use_cuda = False
+
+    def get_rpu_config(self):
+        return SingleRPUConfig(device=ExpStepDevice(w_max_dtod=0, w_min_dtod=0))
+
+    def get_tile(self, out_size, in_size, rpu_config=None, **kwargs):
+        if _SKIP_TRITON_TESTS:
+            raise SkipTest("Triton not available")
+        rpu_config = rpu_config or self.get_rpu_config()
+        return _ExpStepTritonTile(out_size, in_size, rpu_config, **kwargs)

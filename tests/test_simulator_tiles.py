@@ -67,6 +67,10 @@ from .helpers.tiles import (
     TorchInference,
     TorchInferenceCuda,
     QuantizedTorchInference,
+    FloatingPointTriton,
+    IdealTriton,
+    ConstantStepTriton,
+    ExpStepTriton,
 )
 from .helpers.testcases import SKIP_CUDA_TESTS
 
@@ -112,6 +116,10 @@ TOL = 1e-6
         MixedPrecisionCuda,
         InferenceCuda,
         ReferenceCuda,
+        FloatingPointTriton,
+        IdealTriton,
+        ConstantStepTriton,
+        ExpStepTriton,
     ]
 )
 class TileTest(ParametrizedTestCase):
