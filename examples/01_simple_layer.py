@@ -11,6 +11,8 @@ to sum all the elements from one array.
 """
 # pylint: disable=invalid-name
 
+import os
+
 # Imports from PyTorch.
 from torch import Tensor
 from torch.nn.functional import mse_loss
@@ -21,12 +23,18 @@ from aihwkit.optim import AnalogSGD
 from aihwkit.simulator.configs import SingleRPUConfig, ConstantStepDevice
 from aihwkit.simulator.rpu_base import cuda
 
+# Check for Triton backend.
+USE_TRITON = os.environ.get('AIHWKIT_USE_TRITON', '0') == '1'
+
 # Prepare the datasets (input and expected output).
 x = Tensor([[0.1, 0.2, 0.4, 0.3], [0.2, 0.1, 0.1, 0.3]])
 y = Tensor([[1.0, 0.5], [0.7, 0.3]])
 
 # Define a single-layer network, using a constant step device type.
-rpu_config = SingleRPUConfig(device=ConstantStepDevice())
+if USE_TRITON:
+    rpu_config = SingleRPUConfig(use_triton=True)
+else:
+    rpu_config = SingleRPUConfig(device=ConstantStepDevice())
 
 model = AnalogLinear(4, 2, bias=True, rpu_config=rpu_config)
 

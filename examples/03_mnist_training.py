@@ -29,6 +29,9 @@ from aihwkit.optim import AnalogSGD
 from aihwkit.simulator.configs import SingleRPUConfig, ConstantStepDevice
 from aihwkit.simulator.rpu_base import cuda
 
+# Check for Triton backend.
+USE_TRITON = os.environ.get('AIHWKIT_USE_TRITON', '0') == '1'
+
 
 # Check device
 USE_CUDA = 0
@@ -73,26 +76,31 @@ def create_analog_network(input_size, hidden_sizes, output_size):
     Returns:
         nn.Module: created analog model
     """
+    if USE_TRITON:
+        triton_config = SingleRPUConfig(use_triton=True)
+    else:
+        triton_config = None
+
     model = AnalogSequential(
         AnalogLinear(
             input_size,
             hidden_sizes[0],
             True,
-            rpu_config=SingleRPUConfig(device=ConstantStepDevice()),
+            rpu_config=triton_config if triton_config else SingleRPUConfig(device=ConstantStepDevice()),
         ),
         nn.Sigmoid(),
         AnalogLinear(
             hidden_sizes[0],
             hidden_sizes[1],
             True,
-            rpu_config=SingleRPUConfig(device=ConstantStepDevice()),
+            rpu_config=triton_config if triton_config else SingleRPUConfig(device=ConstantStepDevice()),
         ),
         nn.Sigmoid(),
         AnalogLinear(
             hidden_sizes[1],
             output_size,
             True,
-            rpu_config=SingleRPUConfig(device=ConstantStepDevice()),
+            rpu_config=triton_config if triton_config else SingleRPUConfig(device=ConstantStepDevice()),
         ),
         nn.LogSoftmax(dim=1),
     )

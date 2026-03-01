@@ -30,11 +30,15 @@ from aihwkit.nn import AnalogConv2d, AnalogLinear, AnalogSequential
 from aihwkit.optim import AnalogSGD
 from aihwkit.simulator.configs import (
     FloatingPointRPUConfig,
+    SingleRPUConfig,
     SoftBoundsReferenceDevice,
     FloatingPointDevice,
     build_config,
 )
 from aihwkit.simulator.rpu_base import cuda
+
+# Check for Triton backend.
+USE_TRITON = os.environ.get('AIHWKIT_USE_TRITON', '0') == '1'
 
 # Check device
 USE_CUDA = 0
@@ -63,7 +67,9 @@ N_CLASSES = 10
 # * If `FloatingPointRPUConfig(device=FloatingPointDevice())` then standard
 #   floating point devices will be used
 USE_ANALOG_TRAINING = True
-if USE_ANALOG_TRAINING:
+if USE_TRITON:
+    RPU_CONFIG = SingleRPUConfig(use_triton=True)
+elif USE_ANALOG_TRAINING:
     algo = "agad"  # or e.g. ttv2
     RPU_CONFIG = build_config(algo, device=SoftBoundsReferenceDevice(dw_min=0.05))
 else:
