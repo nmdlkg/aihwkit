@@ -104,6 +104,16 @@ class TritonAnalogTile(TritonBaseTile, TileModule):
         self._f_io = getattr(rpu_config, "forward", None) if rpu_config else None
         self._b_io = getattr(rpu_config, "backward", None) if rpu_config else None
 
+        # Triton kernel toggles (all default OFF = minimal-overhead baseline)
+        self._use_triton_gemm: bool = getattr(rpu_config, "use_triton_gemm", False)
+        self._use_triton_io_manager: bool = getattr(rpu_config, "use_triton_io_manager", False)
+
+        # Lazy-init IO Manager only when enabled
+        self._io_manager = None
+        if self._use_triton_io_manager:
+            from aihwkit.simulator.triton.io_manager import TritonIOManager
+            self._io_manager = TritonIOManager()
+
         # Register AnalogContext so AnalogSGD can find and drive this tile.
         # AnalogContext.__init__ calls self.analog_tile.analog_ctx = self which
         # triggers Module.__setattr__ and registers it as a Parameter here.
@@ -124,6 +134,11 @@ class TritonAnalogTile(TritonBaseTile, TileModule):
     def is_cuda(self) -> bool:
         """True if the tile is on a CUDA device."""
         return self.weight.device.type == "cuda"
+
+    @property
+    def tile(self):
+        """Return self — Triton tiles are their own underlying tile (no C++ wrapper)."""
+        return self
 
     def get_dtype(self):
         """Return the dtype of the weight tensor."""
@@ -161,22 +176,48 @@ class TritonAnalogTile(TritonBaseTile, TileModule):
         """Raw forward MVM without autograd wrapping."""
         from aihwkit.simulator.triton.kernels.forward import triton_forward_mvm
 
-        noise_std = 0.0
-        bound = float("inf")
-        if self._f_io is not None:
-            noise_std = float(getattr(self._f_io, "out_noise", 0.0))
-            out_bound = float(getattr(self._f_io, "out_bound", 0.0))
-            if out_bound > 0.0:
-                bound = out_bound
-
         # Handle 3D input from convolution unfold: [batch, patches, features]
         orig_shape = x.shape
         if x.dim() == 3:
             x = x.reshape(-1, x.shape[-1])  # [batch*patches, features]
 
-        y = triton_forward_mvm(
-            self.weight, x, noise_std=noise_std, bound=bound, is_test=is_test
-        )
+        use_io_mgr = (self._use_triton_io_manager
+                      and self._should_use_io_manager(self._f_io)
+                      and not is_test)
+
+        if use_io_mgr:
+            # IO Manager path: pre-scale input, run GEMM, post-process output
+            io_result = self._io_manager.manage_input(x, self._f_io)
+            if self._use_triton_gemm:
+                from aihwkit.simulator.triton.kernels.fused_gemm import triton_fused_gemm
+                y = triton_fused_gemm(
+                    io_result.x_scaled, self.weight,
+                    noise_std=0.0, bound=float("inf"), seed=0
+                )
+            else:
+                y = triton_forward_mvm(
+                    self.weight, io_result.x_scaled,
+                    noise_std=0.0, bound=float("inf"), is_test=False
+                )
+            y = self._io_manager.manage_output(y, self._f_io, io_result.scale)
+        else:
+            # Direct path (default): minimal overhead, Branch A behavior
+            noise_std = 0.0
+            bound = float("inf")
+            if self._f_io is not None:
+                noise_std = float(getattr(self._f_io, "out_noise", 0.0))
+                out_bound = float(getattr(self._f_io, "out_bound", 0.0))
+                if out_bound > 0.0:
+                    bound = out_bound
+            if self._use_triton_gemm:
+                from aihwkit.simulator.triton.kernels.fused_gemm import triton_fused_gemm
+                y = triton_fused_gemm(
+                    x, self.weight, noise_std=noise_std, bound=bound, seed=0
+                )
+            else:
+                y = triton_forward_mvm(
+                    self.weight, x, noise_std=noise_std, bound=bound, is_test=is_test
+                )
 
         if len(orig_shape) == 3:
             y = y.reshape(orig_shape[0], orig_shape[1], -1)  # [batch, patches, out_size]
@@ -228,19 +269,45 @@ class TritonAnalogTile(TritonBaseTile, TileModule):
         """Raw backward MVM without autograd wrapping."""
         from aihwkit.simulator.triton.kernels.backward import triton_backward_mvm
 
-        noise_std = 0.0
-        bound = float("inf")
-        if self._b_io is not None:
-            noise_std = float(getattr(self._b_io, "inp_noise", 0.0))
-            out_bound = float(getattr(self._b_io, "out_bound", 0.0))
-            if out_bound > 0.0:
-                bound = out_bound
         # Handle 3D gradients from convolution unfold: [batch, patches, out_size]
         orig_shape = d.shape
         if d.dim() == 3:
             d = d.reshape(-1, d.shape[-1])  # [batch*patches, out_size]
 
-        dx = triton_backward_mvm(self.weight, d, noise_std=noise_std, bound=bound)
+        use_io_mgr = (self._use_triton_io_manager
+                      and self._should_use_io_manager(self._b_io))
+
+        if use_io_mgr:
+            # IO Manager path: pre-scale gradient, run backward GEMM, post-process
+            io_result = self._io_manager.manage_input(d, self._b_io)
+            if self._use_triton_gemm:
+                from aihwkit.simulator.triton.kernels.fused_gemm import triton_fused_gemm_backward
+                dx = triton_fused_gemm_backward(
+                    io_result.x_scaled, self.weight,
+                    noise_std=0.0, bound=float("inf"), seed=1
+                )
+            else:
+                dx = triton_backward_mvm(
+                    self.weight, io_result.x_scaled,
+                    noise_std=0.0, bound=float("inf")
+                )
+            dx = self._io_manager.manage_output(dx, self._b_io, io_result.scale)
+        else:
+            # Direct path (default): minimal overhead, Branch A behavior
+            noise_std = 0.0
+            bound = float("inf")
+            if self._b_io is not None:
+                noise_std = float(getattr(self._b_io, "inp_noise", 0.0))
+                out_bound = float(getattr(self._b_io, "out_bound", 0.0))
+                if out_bound > 0.0:
+                    bound = out_bound
+            if self._use_triton_gemm:
+                from aihwkit.simulator.triton.kernels.fused_gemm import triton_fused_gemm_backward
+                dx = triton_fused_gemm_backward(
+                    d, self.weight, noise_std=noise_std, bound=bound, seed=1
+                )
+            else:
+                dx = triton_backward_mvm(self.weight, d, noise_std=noise_std, bound=bound)
 
         if len(orig_shape) == 3:
             dx = dx.reshape(orig_shape[0], orig_shape[1], -1)  # [batch, patches, in_size]
@@ -270,6 +337,30 @@ class TritonAnalogTile(TritonBaseTile, TileModule):
         d = d_input.T if in_trans else d_input
         dx = self._backward_impl(d)
         return dx.T if out_trans else dx
+
+    @staticmethod
+    def _should_use_io_manager(io_pars) -> bool:
+        """Return True if IO params justify using the IO Manager.
+
+        Checks for non-NONE noise management or explicit input bounds/noise.
+        Note: the caller must also check ``self._use_triton_io_manager``.
+        """
+        if io_pars is None:
+            return False
+        noise_mgmt = getattr(io_pars, "noise_management", None)
+        # Normalize to string
+        if hasattr(noise_mgmt, "name"):
+            nm_str = noise_mgmt.name.upper()
+        else:
+            nm_str = str(noise_mgmt).upper() if noise_mgmt else "NONE"
+        if "." in nm_str:
+            nm_str = nm_str.rsplit(".", 1)[-1]
+        if nm_str not in ("NONE", ""):
+            return True
+        # Also activate for explicit input bounds or noise
+        inp_bound = float(getattr(io_pars, "inp_bound", 0.0))
+        inp_noise = float(getattr(io_pars, "inp_noise", 0.0))
+        return inp_bound > 0.0 or inp_noise > 0.0
 
     # ------------------------------------------------------------------
     # Weight update

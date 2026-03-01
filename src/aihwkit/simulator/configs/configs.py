@@ -116,19 +116,43 @@ class SingleRPUConfig(IOManagedRPUConfig):
     use_triton: bool = field(default=False)
     """Whether to use Triton backend for tile implementation."""
 
+    use_triton_gemm: bool = field(default=False)
+    """If True, uses fused Triton GEMM kernel instead of cuBLAS for forward/backward MVM.
+
+    The fused kernel combines matmul + noise injection + output clamping into a
+    single Triton kernel launch.  May benefit large matrices where kernel launch
+    overhead is significant.  Default is False (use standard triton_forward_mvm)."""
+
+    use_triton_update: bool = field(default=False)
+    """If True, uses Triton pulsed-update kernel pipeline (triton_get_counts +
+    triton_pulsed_update) for the weight update step on CUDA devices.
+
+    When False (default), uses PyTorch Bernoulli sampling which may be slower
+    for large weight matrices but avoids the batch-reduction approximation
+    inherent in the Triton pipeline."""
+
+    use_triton_io_manager: bool = field(default=False)
+    """If True, enables the Triton I/O Manager for input/output scaling and
+    noise management in forward and backward passes.
+
+    The I/O Manager handles input noise, noise-management scaling (ABS_MAX,
+    MAX, CONSTANT), input bound clamping, output noise, and output rescaling.
+    When False (default), only out_noise and out_bound from IOParameters are
+    applied via the direct path, matching the minimal-overhead baseline."""
+
     def get_default_tile_module_class(self, out_size: int = 0, in_size: int = 0) -> Type:
         """Returns the default TileModule class.
-        
+
         If use_triton is True or AIHWKIT_USE_TRITON env var is set,
         attempts to use Triton backend if available.
         """
         from aihwkit.simulator.triton.backend import TritonBackend
-        
+
         if (self.use_triton or TritonBackend.is_preferred()) and TritonBackend.is_available():
             tile_cls = TritonBackend.get_tile_class(self)
             if tile_cls is not None:
                 return tile_cls
-        
+
         return super().get_default_tile_module_class(out_size, in_size)
 
 
