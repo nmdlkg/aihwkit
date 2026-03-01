@@ -224,8 +224,8 @@ Max Concurrent: 3 (Waves 1 & 3)
   - `src/aihwkit/simulator/triton/tiles/constant_step.py:108-114` — Correct reference
 
   **Acceptance Criteria**:
-  - [ ] `grep -c 'torch.bernoulli' src/aihwkit/simulator/triton/tiles/exp_step.py` → exactly 2 (not 4)
-  - [ ] `pytest tests/test_triton_tiles.py::TestExpStepTritonTile -q` → ALL PASS
+  - [x] `grep -c 'torch.bernoulli' src/aihwkit/simulator/triton/tiles/exp_step.py` → exactly 2 (not 4)
+  - [x] `pytest tests/test_triton_tiles.py::TestExpStepTritonTile -q` → ALL PASS
 
   **QA Scenarios:**
   ```
@@ -267,9 +267,9 @@ Max Concurrent: 3 (Waves 1 & 3)
   - `src/aihwkit/simulator/configs/configs.py:125,288` — Inline imports that propagate errors
 
   **Acceptance Criteria**:
-  - [ ] With Triton: `is_triton_available()` returns True
-  - [ ] Without Triton: `from aihwkit.nn import AnalogLinear` succeeds
-  - [ ] Without Triton: `SingleRPUConfig(use_triton=True)` falls back with warning
+  - [x] With Triton: `is_triton_available()` returns True
+  - [x] Without Triton: `from aihwkit.nn import AnalogLinear` succeeds
+  - [x] Without Triton: `SingleRPUConfig(use_triton=True)` falls back with warning
 
   **QA Scenarios:**
   ```
@@ -302,8 +302,8 @@ Max Concurrent: 3 (Waves 1 & 3)
   - `src/aihwkit/simulator/configs/configs.py` — `use_triton` field pattern (line ~117)
 
   **Acceptance Criteria**:
-  - [ ] `SingleRPUConfig(use_triton_gemm=True)` accepted
-  - [ ] `SingleRPUConfig().use_triton_gemm == False`
+  - [x] `SingleRPUConfig(use_triton_gemm=True)` accepted
+  - [x] `SingleRPUConfig().use_triton_gemm == False`
 
   **QA Scenarios:**
   ```
@@ -358,10 +358,10 @@ Max Concurrent: 3 (Waves 1 & 3)
   - `src/rpucuda/rpu_pulsed_meta_parameter.cpp` — C++ reference: CUDA pulsed update formula details (search for `base_A` or `dw_min`)
 
   **Acceptance Criteria**:
-  - [ ] ConstantStepTritonTile.update() calls triton_pulsed_update (verify via debug print or breakpoint)
-  - [ ] `pytest tests/test_triton_tiles.py::TestConstantStepTritonTile -q` → ALL PASS
-  - [ ] Weights stay within [w_min, w_max] after 100 updates
-  - [ ] Training with ConstantStep converges (loss decreases over epochs)
+  - [x] ConstantStepTritonTile.update() calls triton_pulsed_update (verify via debug print or breakpoint)
+  - [x] `pytest tests/test_triton_tiles.py::TestConstantStepTritonTile -q` → ALL PASS
+  - [x] Weights stay within [w_min, w_max] after 100 updates
+  - [x] Training with ConstantStep converges (loss decreases over epochs)
 
   **QA Scenarios:**
   ```
@@ -418,9 +418,9 @@ Max Concurrent: 3 (Waves 1 & 3)
   - `src/aihwkit/simulator/tiles/torch_tile.py` — TorchTile I/O handling as golden reference
 
   **Acceptance Criteria**:
-  - [ ] With default IOParameters: forward output unchanged (no regression)
-  - [ ] With noise_management=ABS_MAX: input is scaled before GEMM
-  - [ ] `pytest tests/test_triton_tiles.py -q` → ALL 24 PASS (no regression)
+  - [x] With default IOParameters: forward output unchanged (no regression)
+  - [x] With noise_management=ABS_MAX: input is scaled before GEMM
+  - [x] `pytest tests/test_triton_tiles.py -q` → ALL 24 PASS (no regression)
 
   **QA Scenarios:**
   ```
@@ -473,9 +473,9 @@ Max Concurrent: 3 (Waves 1 & 3)
   - `src/aihwkit/simulator/triton/kernels/maximizer.py` — triton_row_max, triton_scale_rows
 
   **Acceptance Criteria**:
-  - [ ] On GPU: I/O Manager uses Triton kernels (no `.item()` CPU sync calls)
-  - [ ] On CPU: I/O Manager falls back to PyTorch ops
-  - [ ] `pytest tests/test_triton_tiles.py -q` → ALL PASS
+  - [x] On GPU: I/O Manager uses Triton kernels (no `.item()` CPU sync calls)
+  - [x] On CPU: I/O Manager falls back to PyTorch ops
+  - [x] `pytest tests/test_triton_tiles.py -q` → ALL PASS
 
   **QA Scenarios:**
   ```
@@ -532,11 +532,11 @@ Max Concurrent: 3 (Waves 1 & 3)
   - `src/aihwkit/simulator/triton/kernels/forward.py` — Current hybrid implementation to replace
 
   **Acceptance Criteria**:
-  - [ ] `triton_fused_gemm(x, W, 0, inf, 0)` matches `torch.mm(x, W.T)` within 1e-5
-  - [ ] Works for non-power-of-2 dims: (1,8,4), (16,256,128), (32,513,255)
-  - [ ] With noise: output differs from clean GEMM by expected magnitude
-  - [ ] CPU fallback produces correct results
-  - [ ] 1D and 3D input handling correct
+  - [x] `triton_fused_gemm(x, W, 0, inf, 0)` matches `torch.mm(x, W.T)` within 1e-5
+  - [x] Works for non-power-of-2 dims: (1,8,4), (16,256,128), (32,513,255)
+  - [x] With noise: output differs from clean GEMM by expected magnitude
+  - [x] CPU fallback produces correct results
+  - [x] 1D and 3D input handling correct
 
   **QA Scenarios:**
   ```
@@ -594,9 +594,9 @@ Max Concurrent: 3 (Waves 1 & 3)
   - `src/aihwkit/simulator/triton/kernels/fused_gemm.py` (Task 7 output)
 
   **Acceptance Criteria**:
-  - [ ] `use_triton_gemm=False`: behavior identical to before (no regression)
-  - [ ] `use_triton_gemm=True`: uses fused GEMM, produces correct results
-  - [ ] `pytest tests/test_triton_tiles.py -q` → ALL PASS
+  - [x] `use_triton_gemm=False`: behavior identical to before (no regression)
+  - [x] `use_triton_gemm=True`: uses fused GEMM, produces correct results
+  - [x] `pytest tests/test_triton_tiles.py -q` → ALL PASS
 
   **QA Scenarios:**
   ```
@@ -657,8 +657,8 @@ Max Concurrent: 3 (Waves 1 & 3)
   - `src/aihwkit/simulator/triton/kernels/*.py` — All kernel wrappers to test
 
   **Acceptance Criteria**:
-  - [ ] `pytest tests/test_triton_kernels.py -v` → 15+ tests ALL PASS
-  - [ ] CPU fallback tests included and passing
+  - [x] `pytest tests/test_triton_kernels.py -v` → 15+ tests ALL PASS
+  - [x] CPU fallback tests included and passing
 
   **QA Scenarios:**
   ```
@@ -692,7 +692,7 @@ Max Concurrent: 3 (Waves 1 & 3)
   - `tests/helpers/testcases.py` — `SKIP_CUDA_TESTS` pattern for skip logic
 
   **Acceptance Criteria**:
-  - [ ] `pytest tests/test_simulator_tiles.py -k 'Triton' --collect-only` shows Triton test variants
+  - [x] `pytest tests/test_simulator_tiles.py -k 'Triton' --collect-only` shows Triton test variants
 
   **Commit**: YES (Wave 4) | `test(triton): add kernel tests, parametrized suite, examples`
 
@@ -709,7 +709,7 @@ Max Concurrent: 3 (Waves 1 & 3)
   - **Can Run In Parallel**: NO | **Blocked By**: Task 10
 
   **Acceptance Criteria**:
-  - [ ] `pytest tests/test_simulator_tiles.py -k 'Triton' -q` → ALL PASS
+  - [x] `pytest tests/test_simulator_tiles.py -k 'Triton' -q` → ALL PASS
 
   **Commit**: YES (Wave 4) | `test(triton): add kernel tests, parametrized suite, examples`
 
@@ -729,9 +729,9 @@ Max Concurrent: 3 (Waves 1 & 3)
   - **Can Run In Parallel**: YES | Wave 4 | **Blocked By**: Tasks 4, 5, 8
 
   **Acceptance Criteria**:
-  - [ ] `AIHWKIT_USE_TRITON=1 python examples/01_simple_layer.py` → loss converges
-  - [ ] `AIHWKIT_USE_TRITON=1 python examples/03_mnist_training.py` → accuracy > 95%
-  - [ ] `AIHWKIT_USE_TRITON=1 python examples/04_lenet5_training.py` → accuracy > 95%
+  - [x] `AIHWKIT_USE_TRITON=1 python examples/01_simple_layer.py` → loss converges
+  - [x] `AIHWKIT_USE_TRITON=1 python examples/03_mnist_training.py` → accuracy > 95%
+  - [x] `AIHWKIT_USE_TRITON=1 python examples/04_lenet5_training.py` → accuracy > 95%
 
   **Commit**: YES (Wave 4) | `test(triton): add kernel tests, parametrized suite, examples`
 
@@ -752,8 +752,8 @@ Max Concurrent: 3 (Waves 1 & 3)
   - **Can Run In Parallel**: YES | Wave 4 | **Blocked By**: Tasks 4, 5, 8
 
   **Acceptance Criteria**:
-  - [ ] Benchmark results saved to evidence directory
-  - [ ] Report includes timing for all 4 matrix sizes
+  - [x] Benchmark results saved to evidence directory
+  - [x] Report includes timing for all 4 matrix sizes
 
   **Commit**: YES (Wave 4) | `test(triton): add kernel tests, parametrized suite, examples`
 
