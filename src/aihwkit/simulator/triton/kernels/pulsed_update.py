@@ -55,6 +55,7 @@ if HAS_TRITON:
             triton.Config({"BLOCK_M": 32, "BLOCK_K": 32}),
         ],
         key=["M", "K"],
+        restore_value=["weights_ptr"],
     )
     @triton.jit
     def _pulsed_update_ideal_kernel(
@@ -111,6 +112,7 @@ if HAS_TRITON:
             triton.Config({"BLOCK_M": 32, "BLOCK_K": 32}),
         ],
         key=["M", "K"],
+        restore_value=["weights_ptr"],
     )
     @triton.jit
     def _pulsed_update_constant_step_kernel(
