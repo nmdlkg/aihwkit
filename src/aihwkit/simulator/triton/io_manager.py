@@ -10,11 +10,17 @@ Handles input/output scaling and noise management for analog matrix-vector
 multiplications. Mirrors the logic from ``analog_mvm.py`` /
 ``io_manager.cu`` in a pure Python implementation compatible with the
 Triton backend.
+
+When running on CUDA, uses fused Triton kernels (triton_abs_max,
+triton_clamp, triton_elem_scale) for reduced kernel launch overhead.
+Falls back to equivalent PyTorch ops on CPU.
 """
 
 import torch
 from typing import Tuple, Optional, Union
 from dataclasses import dataclass
+
+from .kernels.math_utils import triton_abs_max, triton_clamp, triton_elem_scale
 
 
 @dataclass
@@ -27,7 +33,7 @@ class IOScaleResult:
     """
 
     x_scaled: torch.Tensor
-    scale: float
+    scale: Union[float, torch.Tensor]
 
 
 class TritonIOManager:
@@ -36,6 +42,9 @@ class TritonIOManager:
     Implements the I/O management logic from ``io_manager.cu`` /
     ``AnalogMVM._compute_noise_management`` in pure Python for use with
     the Triton backend.
+
+    On CUDA devices, uses fused Triton kernels for element-wise operations
+    to reduce kernel launch overhead.  Falls back to PyTorch ops on CPU.
 
     All parameter access uses ``getattr(io_pars, field, default)`` so that
     any duck-typed object (not just ``IOParameters``) can be passed.
@@ -61,8 +70,9 @@ class TritonIOManager:
         inp_noise: float = getattr(io_pars, "inp_noise", 0.0)
         noise_mgmt = getattr(io_pars, "noise_management", "ABS_MAX")
 
-        # Normalise enum → string for comparison
+        # Normalise enum -> string for comparison
         noise_mgmt_str = self._enum_to_str(noise_mgmt)
+        use_cuda = x.is_cuda
 
         # 1. Add input noise if configured
         x_proc = x
@@ -72,26 +82,35 @@ class TritonIOManager:
         # 2. Compute noise-management scale
         nm_scale = self._compute_noise_management_scale(x_proc, noise_mgmt_str, io_pars)
 
-        # Derive input scale: maps nm_scale → inp_bound range
+        # Derive input scale: maps nm_scale -> inp_bound range
         if nm_scale > 0:
             scale = inp_bound / nm_scale
         else:
             scale = 1.0
 
+        # Convert to float for Triton kernel scalar args
+        scale_f = float(scale) if isinstance(scale, torch.Tensor) else scale
+
         # 3. Scale input
-        x_scaled = x_proc * scale
+        if use_cuda:
+            x_scaled = triton_elem_scale(x_proc, scale_f)
+        else:
+            x_scaled = x_proc * scale_f
 
         # 4. Clamp to input bound
         if inp_bound > 0:
-            x_scaled = x_scaled.clamp(-inp_bound, inp_bound)
+            if use_cuda:
+                x_scaled = triton_clamp(x_scaled, -inp_bound, inp_bound)
+            else:
+                x_scaled = x_scaled.clamp(-inp_bound, inp_bound)
 
-        return IOScaleResult(x_scaled=x_scaled, scale=scale)
+        return IOScaleResult(x_scaled=x_scaled, scale=scale_f)
 
     def manage_output(
         self,
         y: torch.Tensor,
         io_pars: object,
-        input_scale: float = 1.0,
+        input_scale: Union[float, torch.Tensor] = 1.0,
     ) -> torch.Tensor:
         """Post-process output of analog MVM.
 
@@ -113,6 +132,7 @@ class TritonIOManager:
         out_scale: float = getattr(io_pars, "out_scale", 1.0)
 
         y_out = y
+        use_cuda = y.is_cuda
 
         # 1. Add output noise (before clamping, matching C++ reference)
         if out_noise > 0.0:
@@ -127,13 +147,26 @@ class TritonIOManager:
 
         # 2. Apply output bound
         if out_bound > 0:
-            y_out = y_out.clamp(-out_bound, out_bound)
+            if use_cuda:
+                y_out = triton_clamp(y_out, -out_bound, out_bound)
+            else:
+                y_out = y_out.clamp(-out_bound, out_bound)
 
         # 3. Rescale: undo input scaling and apply out_scale
-        if input_scale != 0 and input_scale != 1.0:
-            y_out = y_out * (out_scale / input_scale)
+        input_scale_f = (
+            float(input_scale) if isinstance(input_scale, torch.Tensor) else input_scale
+        )
+        if input_scale_f != 0 and input_scale_f != 1.0:
+            combined = out_scale / input_scale_f
+            if use_cuda:
+                y_out = triton_elem_scale(y_out, combined)
+            else:
+                y_out = y_out * combined
         elif out_scale != 1.0:
-            y_out = y_out * out_scale
+            if use_cuda:
+                y_out = triton_elem_scale(y_out, out_scale)
+            else:
+                y_out = y_out * out_scale
 
         return y_out
 
@@ -156,12 +189,13 @@ class TritonIOManager:
     @staticmethod
     def _compute_noise_management_scale(
         x: torch.Tensor, nm_type_str: str, io_pars: object
-    ) -> float:
+    ) -> Union[float, torch.Tensor]:
         """Compute the noise-management scale (raw, not inverted).
 
         This mirrors ``AnalogMVM._compute_noise_management`` but returns
-        a scalar float and operates globally over the tensor (suitable
-        for single-sample or batched usage without per-row distinction).
+        a scalar float (CPU) or scalar tensor (GPU) and operates globally
+        over the tensor (suitable for single-sample or batched usage
+        without per-row distinction).
 
         Args:
             x: Input tensor.
@@ -172,21 +206,34 @@ class TritonIOManager:
             Raw scale value (e.g. ``abs_max(x)`` for ABS_MAX mode).
         """
         nm_thres: float = getattr(io_pars, "nm_thres", 0.0)
+        use_cuda = x.is_cuda
 
         if nm_type_str == "ABS_MAX":
-            abs_max = x.abs().max().item()
-            if nm_thres > 0.0:
-                abs_max = min(abs_max, nm_thres)
-            return abs_max
+            if use_cuda:
+                abs_max = triton_abs_max(x)  # scalar tensor, fused abs+max
+                if nm_thres > 0.0:
+                    abs_max = abs_max.clamp(max=nm_thres)
+                return abs_max
+            else:
+                abs_max = x.abs().max().item()
+                if nm_thres > 0.0:
+                    abs_max = min(abs_max, nm_thres)
+                return abs_max
 
         if nm_type_str == "MAX":
-            max_val = x.max().item()
-            if nm_thres > 0.0:
-                max_val = min(max_val, nm_thres)
-            return max_val
+            if use_cuda:
+                max_val = x.max()  # scalar tensor
+                if nm_thres > 0.0:
+                    max_val = max_val.clamp(max=nm_thres)
+                return max_val
+            else:
+                max_val = x.max().item()
+                if nm_thres > 0.0:
+                    max_val = min(max_val, nm_thres)
+                return max_val
 
         if nm_type_str == "CONSTANT":
             return nm_thres if nm_thres > 0.0 else 1.0
 
-        # NONE or unknown → no scaling
+        # NONE or unknown -> no scaling
         return 1.0
